@@ -19,7 +19,8 @@ This is a framework to
 The solution works with integer identities, so it does not contain any personally identifiable information.
 This means that you'll have to connect those IDs to your attendee records yourself.
 
-No IP addresses, locations, etc, are used or checked or stored.
+No IP addresses, locations, etc, are used or checked or stored, unless specifically entered in the note
+field by vendors.
 
 The solution does not use passwords, with the exception of the EventSecret, which the event owner will need to
 extract reporting data if they don't have database access.
@@ -55,7 +56,7 @@ Here's how the scanning flow works.
 
 ![Sample Mailchimp integration](https://raw.githubusercontent.com/strdco/scan.datasatsto.se/boss/Documentation/scanning-flow.png)
 
-### With cookie-enabled terminal (normal workflow):
+### With cookie-enabled terminal:
 
 * An exhibitor will first go to `/setup` to create and store an exhibitor code. This code is stored as a cookie
   on the browser, so the process needs to be completed for each terminal.
@@ -70,6 +71,7 @@ and it does not inherit persistent cookies from Safari, so this alternate workfl
 * The exhibitor scans the QR code, which loads `/123456789`.
 * Because the web server does not detect a cookie, it will present the user with a list of codes.
 * When the user clicks one of the codes, the browser loads `/123456789/exhibitorcode`, which completes the scan.
+* If the user long-presses an exhibitor code, they are given the option to add a custom note to the scan.
 
 ## Add a new event
 
@@ -106,6 +108,8 @@ Return value:
 
 `GET /{identity}/{code}`
 
+`POST /{identity}/{code}` with `note` parameter
+
 Scans the identity. Code is optional, and can be added to re-use the identity
 for multiple purposes/exhibitors/etc. Remember that the QR URL only contains
 the identity, not the code.
@@ -114,8 +118,11 @@ Displays a very brief status to the user to indicate if the scan was successful.
 
 Returns HTTP/200 if successful, 500 if not.
 
-Displays an error message if there's no code, prompting the user to set up
+Displays an error message if there's no cached code, prompting the user to set up
 the terminal first.
+
+For POST requests, the "note" parameter is saved as a plaintext description in
+the "Note" column of the scans table.
 
 ## Store a exhibitor code as a cookie
 
@@ -146,7 +153,7 @@ Example:
  {"ID":"17560301726","Scanned":"2021-09-27T18:13:08.743Z","Code":null},
  {"ID":"17560301726","Scanned":"2021-09-27T18:13:17.322Z","Code":null},
  {"ID":"17560301726","Scanned":"2021-09-27T18:13:43.244Z","Code":null},
- {"ID":"17560301726","Scanned":"2021-09-27T18:15:34.198Z","Code":"Exhibitor 1"},
+ {"ID":"17560301726","Scanned":"2021-09-27T18:15:34.198Z","Code":"Exhibitor 1","Note":"Spoke about cloud monitoring."},
  {"ID":"17560301726","Scanned":"2021-09-27T18:15:39.511Z","Code":null},
  {"ID":"17560301726","Scanned":"2021-09-27T18:17:13.824Z","Code":"Exhibitor 2"},
  {"ID":"17560301726","Scanned":"2021-09-27T18:18:36.513Z","Code":"Exhibitor 2"},

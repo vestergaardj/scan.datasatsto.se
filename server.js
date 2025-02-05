@@ -110,7 +110,7 @@ app.get('/', function (req, res, next) {
   Get QR code PNG file
   ---------------------------------------------------------------------------*/
 
-app.get('/:dir/:id.png', function (req, res, next) {
+app.get('/:dir/:id([0-9]*).png', function (req, res, next) {
 
     httpHeaders(res);
 
@@ -142,7 +142,7 @@ app.get('/:dir/:id.png', function (req, res, next) {
   ---------------------------------------------------------------------------*/
 
   app.get('/new/:event', newRegistration);      // Generate an ID (default)
-  app.get('/new/:event/:id', newRegistration);  // Use an existing ID (suitable for simplifying integrations)
+  app.get('/new/:event/:id([0-9]*)', newRegistration);  // Use an existing ID (suitable for simplifying integrations)
 
 function newRegistration (req, res, next) {
     httpHeaders(res);
@@ -230,7 +230,7 @@ app.get('/setup', function (req, res, next) {
         async function(recordset) {
             var codes='';
             recordset.forEach(item => {
-                codes+='<a href="/'+parseInt(req.query.id)+'/'+encodeURIComponent(item.ReferenceCode)+'">'+simpleHtmlEncode(item.ReferenceCode)+'</a>';
+                codes+='<span class="code" xhref="/'+parseInt(req.query.id)+'/'+encodeURIComponent(item.ReferenceCode)+'">'+simpleHtmlEncode(item.ReferenceCode)+'</span>';
             });
 
             if (!codes) {
@@ -271,10 +271,18 @@ app.post('/setup', function (req, res, next) {
   Scan a code:
   ---------------------------------------------------------------------------*/
 
+app.post('/:id([0-9]*)/:code', newScan);
 app.get('/:id([0-9]*)/:code', newScan);
 app.get('/:id([0-9]*)', newScan);
 
 function newScan(req, res, next) {
+
+    if (req.params.code) {
+        if (req.params.code.includes('favicon')) {
+            res.status(404).send('');
+            return;
+        }
+    }
 
     var referenceCode=decodeURI(req.params.code || '') || req.session.vendorCode || "";
     if (!referenceCode) {
@@ -282,14 +290,17 @@ function newScan(req, res, next) {
         return;
     }
 
+    var note=req.body.note;
+
     httpHeaders(res);
     try {
         // Name the connection after the host:
         connectionString.options.appName=req.headers.host;
 
-        sqlQuery(connectionString, 'EXECUTE Scan.New_Scan @ID=@ID, @ReferenceCode=@ReferenceCode;',
+        sqlQuery(connectionString, 'EXECUTE Scan.New_Scan @ID=@ID, @ReferenceCode=@ReferenceCode, @Note=@Note;',
             [   { "name": 'ID', "type": Types.BigInt, "value": parseInt(req.params.id) },
-                { "name": 'ReferenceCode', "type": Types.VarChar, "value": referenceCode }],
+                { "name": 'ReferenceCode', "type": Types.VarChar, "value": referenceCode },
+                { "name": 'Note', "type": Types.NVarChar, "value": note }],
 
             async function(recordset) {
                 if (recordset.length==1) {
@@ -624,7 +635,7 @@ function httpHeaders(res) {
     res.header('Strict-Transport-Security', hstsPreloadHeader); // HTTP Strict Transport Security with preload
 */
     // Limits use of external script/css/image resources
-    res.header('Content-Security-Policy', "default-src 'self'; style-src 'self' fonts.googleapis.com; script-src 'self'; font-src fonts.gstatic.com");
+    res.header('Content-Security-Policy', "default-src 'self'; style-src 'self' fonts.googleapis.com; script-src 'self' https://static.cloudflareinsights.com; font-src fonts.gstatic.com");
 
     // Don't allow this site to be embedded in a frame; helps mitigate clickjacking attacks
     res.header('X-Frame-Options', 'sameorigin');

@@ -34,6 +34,7 @@ CREATE TABLE Scan.Scans (
     ID          bigint NOT NULL,
     Scanned     datetime2(3) NOT NULL,
     ReferenceCode varchar(20) NULL,
+    Note        nvarchar(max) NULL,
     CONSTRAINT PK_Scan_Scans PRIMARY KEY CLUSTERED (Id, Scanned),
     CONSTRAINT FK_Scan_Scans_Identities FOREIGN KEY (ID) REFERENCES Scan.Identities (ID)
 );
@@ -116,10 +117,23 @@ GO
 
 CREATE OR ALTER PROCEDURE Scan.New_Scan
     @ID             bigint,
-    @ReferenceCode  varchar(20)=NULL
+    @ReferenceCode  varchar(20)=NULL,
+    @Note           nvarchar(max)=NULL
 AS
 
 SET NOCOUNT ON;
+
+IF ((SELECT Expires
+     FROM Scan.Events
+     WHERE EventID=(SELECT EventID
+                    FROM Scan.Identities
+                    WHERE ID=@ID)
+    )<=CAST(SYSDATETIME() AS date)) BEGIN;
+
+    SELECT -1 AS [ID];
+    THROW 50001, 'This event is no longer active', 1;
+    RETURN;
+END;
 
 --- Create the reference code if
 --- * the identity exists, and
@@ -132,12 +146,17 @@ EXCEPT
 SELECT EventID, ReferenceCode
 FROM Scan.ReferenceCodes;
 
---- Add the user scan if the identity exists:
-INSERT INTO Scan.Scans (ID, Scanned, ReferenceCode)
-OUTPUT inserted.ID
-SELECT @ID, SYSUTCDATETIME(), @ReferenceCode
-FROM Scan.Identities
-WHERE ID=@ID;
+BEGIN TRY;
+    --- Add the user scan if the identity exists:
+    INSERT INTO Scan.Scans (ID, Scanned, ReferenceCode, Note)
+    OUTPUT inserted.ID
+    SELECT @ID, SYSUTCDATETIME(), @ReferenceCode, @Note
+    FROM Scan.Identities
+    WHERE ID=@ID;
+END TRY
+BEGIN CATCH;
+    SELECT -1 AS [ID];
+END CATCH;
 
 GO
 
@@ -165,7 +184,7 @@ CREATE OR ALTER PROCEDURE Scan.Get_Scans
     @EventSecret        uniqueidentifier
 AS
 
-SELECT i.ID, s.Scanned, s.ReferenceCode AS Code
+SELECT i.ID, s.Scanned, s.ReferenceCode AS Code, s.Note
 FROM Scan.Events AS e
 INNER JOIN Scan.Identities AS i ON e.EventID=i.EventID
 LEFT JOIN Scan.Scans AS s ON i.ID=s.ID
@@ -224,7 +243,7 @@ BEGIN TRANSACTION;
     DELETE c
     FROM Scan.Events AS e
     INNER JOIN Scan.ReferenceCodes AS c ON e.EventID=c.EventID
-    WHERE e.Expired<@today;
+    WHERE e.Expires<@today;
 
     --- Events
     DELETE e
