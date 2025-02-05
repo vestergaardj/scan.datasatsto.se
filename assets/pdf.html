@@ -1,0 +1,65 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+    <meta content="utf-8" http-equiv="encoding"/>
+    <meta name="viewport" content="width=device-width, initial-scale=0.5">
+
+    <link rel="shortcut icon" href="/assets/favicon.png" type="image/png">
+    <link rel="icon" href="/assets/favicon.png" type="image/png">
+
+    <link rel="stylesheet" href="/assets/style.css"/>
+
+    <title>Generate PDF document</title>
+</head>
+<body class="pdf">
+
+    <div class="msgbox">
+        <form action="/pdf" method="post" autocomplete="false">
+            <table>
+                <tr><td>Event secret:</td>
+                    <td><input type="text" name="secret" placeholder="Event secret (required)" value="<%=Secret%>"></td></tr>
+                <tr><td>Encryption key:</td>
+                    <td><input type="text" name="encryptionKey" placeholder="Encryption pass phrase"></td></tr>
+                <tr><td>Paper size:</td>
+                    <td><select name="paperSize">
+                        <option value="A3">ISO A3</option>
+                        <option value="A4" selected>ISO A4</option>
+                        <option value="A5">ISO A5</option>
+                        <option value="A6">ISO A6</option>
+                        <option value="EXECUTIVE">Executive</option>
+                        <option value="LEGAL">Legal</option>
+                        <option value="LETTER">Letter</option>
+                        <option value="TABLOID">Tabloid</option>                
+                    </select></td></tr>
+                <tr><td>QR code size</td>
+                    <td><select name="qrSize">
+                        <option value="0.05">Tiny</option>
+                        <option value="0.15">Small</option>
+                        <option value="0.15" selected>Medium</option>
+                        <option value="0.25">Large</option>
+                        <option value="0.35">Huge</option>
+                    </select></td></tr>
+                <tr><td>Badges per sheet:</td>
+                    <td><select name="badgeCount">
+                        <option value="4,4">4x4</option>
+                        <option value="3,3">3x3</option>
+                        <option value="2,2" selected>2x2</option>
+                        <option value="1,1">1</option>
+                    </select></td></tr>
+                <tr><td>Font size:</td>
+                    <td><select name="fontSize">
+                        <option value="24">24pt</option>
+                        <option value="18" selected>18pt</option>
+                        <option value="12">12pt</option>
+                        <option value="8">8pt</option>
+                    </select></td></tr>
+                    <tr><td colspan="2"><textarea type="text" name="identities" placeholder="Paste a comma-delimited list of identities here. Column names can include 'id', 'email', 'firstname', 'lastname', 'name', 'description', 'org', 'title', and/or 'location'."></textarea></td></tr>
+                    <tr><td colspan="2"><input type="checkbox" name="onlyprintidentities" id="printchkbox"/> <label for="printchkbox">Only print badges for the above identities</label></td></tr>
+                    <tr><td colspan="2"><input type="submit" value="Generate printable badges"/></td></tr>
+            </table>
+        </form>
+    </div>
+
+</body>
+</html>

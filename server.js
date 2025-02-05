@@ -16,14 +16,20 @@ var serverPort=process.argv[2] || process.env.PORT || 3000;
 // QR Code module:
 const qr = require('qrcode'); // https://www.npmjs.com/package/qrcode
 
+// PDF generator module:
+const PDFGenerator = require('pdfkit');
+
+// CSV parser
+const csv = require('csv-parse');
+
 // The web server itself:
 const app = express();
 app.disable('etag');
 app.disable('x-powered-by');
 app.enable('trust proxy');
 
-app.use(express.json());
-app.use(express.urlencoded( { extended: true }));
+app.use(express.json( { limit: '10mb' }));
+app.use(express.urlencoded( { limit: '10mb', extended: true }));
 
 app.use(cookieSession({
     name: 'session',
@@ -385,6 +391,261 @@ function randomScan (req, res, next) {
     }
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Input form to generate the PDF document:
+app.get('/pdf/:secret', async function (req, res, next) {
+    res.status(200).send(createHTML('assets/pdf.html', { "Secret": (decodeURI(req.params.secret) || '') }));
+});
+
+
+// Generate the PDF document:
+app.post('/pdf', async function (req, res, next) {
+
+    // Create the /pdf directory if it doesn't already exist
+    if (!fs.existsSync(__dirname+'/pdf')) { fs.mkdirSync(__dirname+'/pdf'); }
+
+    // Create the /qr directory if it doesn't already exist
+    if (!fs.existsSync(__dirname+'/qr')) { fs.mkdirSync(__dirname+'/qr'); }
+
+    const pageSizes={
+        "A3": { "pageWidth": 841.89, "pageHeight": 1190.55 },
+        "A4": { "pageWidth": 595.28, "pageHeight": 841.89 },
+        "A5": { "pageWidth": 419.53, "pageHeight": 595.28 },
+        "A6": { "pageWidth": 297.64, "pageHeight": 419.53 },
+        "EXECUTIVE": { "pageWidth": 521.86, "pageHeight": 756.00 },
+        "LEGAL": { "pageWidth": 612.00, "pageHeight": 1008.00 },
+        "LETTER": { "pageWidth": 612.00, "pageHeight": 792.00 },
+        "TABLOID": { "pageWidth": 792.00, "pageHeight": 1224.00 }       
+    };
+
+    var pdfConfig={
+        "documentInfo": {
+            Title: 'Attendee badges',
+            Author: req.headers.host,
+            Subject: req.headers.host,
+            CreationDate: new Date()
+        },
+
+        // https://pdfkit.org/docs/paper_sizes.html
+        "pageSettings": {
+            "font": __dirname+'/assets/Montserrat-SemiBold.ttf',
+            "size": (req.body.pageSize || 'A4'),
+            "margins": { top: 0, bottom: 0, left: 0, right: 0 }
+        },
+        "pageWidth": pageSizes[req.body.pageSize || 'A4'].pageWidth,
+        "pageHeight": pageSizes[req.body.pageSize || 'A4'].pageHeight,
+        "pageTopMargin": 40,
+        "topPercent": 0.5,
+
+        "qrSizePercent": parseFloat(req.body.qrSize || '0.15'),
+        "badgeHorizontalCount": parseInt(req.body.badgeCount.split(',')[0] || '2'),
+        "badgeVerticalCount": parseInt(req.body.badgeCount.split(',')[1] || '2'),
+
+        "siteName": req.headers.host
+    };
+
+    try {
+        var blob=await parseDelimitedText(req.body.identities);
+        console.log(blob);
+
+        sqlQuery(connectionString, 'EXECUTE Scan.Update_Identities @EventSecret=@EventSecret, @EncryptionKey=@EncryptionKey, @Identities_blob=@blob;\n'+
+                                   'EXECUTE Scan.Get_Identities @EventSecret=@EventSecret, @EncryptionKey=@EncryptionKey;',
+            [   { "name": 'EventSecret', "type": Types.UniqueIdentifier, "value": req.body.secret },
+                { "name": 'EncryptionKey', "type": Types.NVarChar, "value": req.body.encryptionKey },
+                { "name": 'blob', "type": Types.NVarChar, "value": JSON.stringify(blob) }],
+
+            async function(recordset) {
+                if (!recordset) {
+                    res.status(401).send('Invalid or missing event secret.');
+                    return;
+                }
+
+                const blob=JSON.parse(recordset[0].blob);
+                console.log(blob);
+
+                // Create the event directory if it doesn't already exist
+                const dir=__dirname+'/qr/'+(blob.eventName.toLowerCase());
+                if (!fs.existsSync(dir)) { fs.mkdirSync(dir); }
+
+                var pdf = new PDFGenerator(pdfConfig.pageSettings);
+                pdf.fontSize(parseInt(req.body.fontSize || '16'));
+                pdfConfig.documentInfo.Subject=blob.eventName;
+                pdf.info=pdfConfig.documentInfo;
+
+                //pdf.pipe(fs.createWriteStream('./pdf/Badges_'+blob.eventId+'.pdf'));
+                pdf.pipe(res) // send back as http response
+
+                var badgeWidth=pdfConfig.pageWidth/pdfConfig.badgeHorizontalCount;
+                var badgeHeight=pdfConfig.pageHeight/pdfConfig.badgeVerticalCount;
+                var badgeCounter=0;
+
+                for (member of blob.identities) {
+
+                    if (badgeCounter>0 && badgeCounter%(pdfConfig.badgeHorizontalCount*pdfConfig.badgeVerticalCount)==0) {
+                        pdf.addPage(pdfConfig.pageSettings);
+                    }
+
+                    var x=badgeWidth*(badgeCounter%pdfConfig.badgeHorizontalCount);
+                    var y=badgeHeight*Math.floor((badgeCounter%(pdfConfig.badgeHorizontalCount*pdfConfig.badgeVerticalCount))/pdfConfig.badgeHorizontalCount);
+
+                    if (member.id) {
+                        await qr.toFile(dir+'/'+member.id+'.png', 'https://'+pdfConfig.siteName+'/'+member.id, { scale: 10 });
+
+                        // Add the QR code:
+                        pdf.image(dir+'/'+member.id+'.png',
+                            x+badgeWidth/2-badgeHeight*pdfConfig.qrSizePercent/2,
+                            y+badgeHeight*pdfConfig.topPercent-pdfConfig.pageTopMargin,
+                            { width: badgeHeight*pdfConfig.qrSizePercent, height: badgeHeight*pdfConfig.qrSizePercent });
+                    }
+
+                    // Add the name:
+                    if (member.name) {
+                        pdf.text(member.name, x, y+badgeHeight*(pdfConfig.topPercent+pdfConfig.qrSizePercent*1.1)-pdfConfig.pageTopMargin, {
+                            bold: true,
+                            align: 'center',
+                            width: badgeWidth
+                        });
+                    }
+
+                    // Add the description/org/role:
+                    if (member.description) {
+                        pdf.text(member.description, {
+                            align: 'center',
+                            width: badgeWidth
+                        });
+                    }
+
+                    // Add a frame for debugging:
+                    //pdf.rect(x, y, badgeWidth, badgeHeight).stroke();
+
+                    badgeCounter++;
+                }
+
+                pdf.end();
+                //res.status(200).json(recordset);
+                return;
+        });
+    } catch(e) {
+        console.log('Oh no');
+        console.log(e);
+
+        res.status(500);
+    }
+
+});
+
+
+
+
+// Function to parse the text
+async function parseDelimitedText(dataset) {
+
+    dataset=dataset.split('\r\n').join('\n');
+
+    var headers=dataset.split('\n')[0]
+        .toLowerCase()
+        .split(' ').join('')
+        .split('-').join('')
+        .split('.').join('')
+        .split('_').join('');
+
+    dataset=headers+'\n'+dataset.split('\n').slice(1).join('\n');
+
+    var delimiter;
+    var delimiterCount=dataset.split('\n').length;
+
+    if (dataset.split(';').length>=delimiterCount)  { delimiterCount=dataset.split(';').length;  delimiter=';'; }
+    if (dataset.split(',').length>=delimiterCount)  { delimiterCount=dataset.split(',').length;  delimiter=','; }
+    if (dataset.split('\t').length>=delimiterCount) { delimiterCount=dataset.split('\t').length; delimiter='\t'; }
+
+    headers=headers
+        .split('"').join('')
+        .split("'").join('')
+        .split(delimiter);
+
+    var parsedCsv=await new Promise((resolve, reject) => {
+        csv.parse(dataset, {
+            "delimiter": delimiter,
+            "columns": true,
+            "trim": true
+        }, (err, records) => {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(records);
+            }
+        });
+    });
+
+    console.log('Headers:', headers);
+
+    var idHeader=selectHeader(headers, ['id']);
+    var emailHeader=selectHeader(headers, ['email']);
+    var firstNameHeader=selectHeader(headers, ['firstname', 'givenname']);
+    var lastNameHeader=selectHeader(headers, ['lastname', 'familyname', 'name']);
+    var phoneHeader=selectHeader(headers, ['mobile']);//, 'mobile']);
+    var descriptionHeader=selectHeader(headers, ['org', 'company']);
+    var jobTitleHeader=selectHeader(headers, ['jobtitle', 'role', 'title']);
+    var location=selectHeader(headers, ['location', 'city', 'state', 'country']);
+
+    var data=parsedCsv.map(row => {
+        var obj={};
+        if (idHeader) { obj.id=parseInt(row[idHeader]); }
+        if (emailHeader) { obj.email=row[emailHeader]; }
+        if (lastNameHeader) { obj.name=(firstNameHeader ? row[firstNameHeader]+' ' : '')+row[lastNameHeader]; }
+        if (phoneHeader) { obj.phone=row[phoneHeader]; }
+        if (descriptionHeader) { obj.description=row[descriptionHeader]; }
+        if (jobTitleHeader) { obj.title=row[jobTitleHeader]; }
+        if (location) { obj.location=row[location]; }
+        return obj;
+    });
+
+    return data;
+}
+
+function selectHeader(headers, candidates) {
+    var headerNo=-1;
+
+    // Exact match
+    candidates.forEach(candidate => {
+        if (headerNo==-1) { headerNo=headers.findIndex((col) => col==candidate ); }
+    });
+    // Starts with
+    candidates.forEach(candidate => {
+        if (headerNo==-1) { headerNo=headers.findIndex((col) => col.indexOf(candidate)==0); }
+    });
+    // Ends with
+    candidates.forEach(candidate => {
+        if (headerNo==-1) { headerNo=headers.findIndex((col) => col.indexOf(candidate)>=0 && col.indexOf(candidate)==col.length-candidate.length); }
+    });
+    // Contains
+    candidates.forEach(candidate => {
+        if (headerNo==-1) { headerNo=headers.findIndex((col) => col.indexOf(candidate)>=0); }
+    });
+
+    console.log(candidates, headers[headerNo]);
+    if (headerNo>=0) { return headers[headerNo]; }
+}
+
+
 
 
 

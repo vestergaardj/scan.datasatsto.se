@@ -11,6 +11,8 @@
     "fs": "*",
     "path": "*",
     "qrcode": "*",
+    "pdfkit": "*",
+    "csv-parse": "*",
     "tedious": "*"
   }
 }
